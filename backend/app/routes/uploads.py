@@ -6,7 +6,7 @@ from typing import List
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.exceptions import DocSyncError, ProjectNotFoundError, UploadRejectedError
-from app.models.project import UploadResponse
+from app.models.project import DocumentDeleteResponse, UploadResponse
 from app.services.upload_service import upload_service
 
 router = APIRouter(prefix="/api/projects", tags=["uploads"])
@@ -42,3 +42,16 @@ async def upload_project_documents(
         raise HTTPException(status_code=400, detail=e.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected upload failure: {str(e)}")
+
+
+@router.delete("/{project_id}/documents/{filename}", response_model=DocumentDeleteResponse)
+def delete_project_document(project_id: str, filename: str) -> DocumentDeleteResponse:
+    """Safely deletes an individual uploaded documentation file and invalidates analysis results."""
+    try:
+        return upload_service.delete_document_file(project_id, filename)
+    except ProjectNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected document deletion failure: {str(e)}")

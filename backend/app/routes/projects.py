@@ -19,8 +19,44 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 @router.post("", response_model=ProjectSummary, status_code=status.HTTP_201_CREATED)
 def create_project(payload: ProjectCreate) -> ProjectSummary:
-    """Creates a new project space."""
-    return project_service.create_project(name=payload.name, description=payload.description)
+    """Creates a new project space and establishes GitHub repository connection if Mode 2."""
+    is_github = (payload.audit_mode == "github") or bool(payload.github_repo_url)
+
+    project = project_service.create_project(
+        name=payload.name,
+        description=payload.description,
+        audit_mode="github" if is_github else "zip",
+        github_repo=payload.github_repo_url,
+        github_branch=payload.github_branch,
+    )
+
+    if is_github and payload.github_repo_url:
+        try:
+            from app.models.github import GitHubConnectRequest
+            from app.services.github_service import github_service
+
+            connect_req = GitHubConnectRequest(
+                repo_url=payload.github_repo_url,
+                branch=payload.github_branch,
+                access_token=payload.github_token,
+            )
+            github_service.connect_repository(project.id, connect_req)
+            # Re-fetch project to return updated branch and connection metadata
+            return project_service.get_project(project.id)
+        except Exception as e:
+            # Clean up the project directory on connection failure to avoid leaving a broken ghost project
+            try:
+                project_service.delete_project(project.id)
+            except Exception:
+                pass
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to connect to GitHub repository: {str(e)}",
+            )
+
+    return project
 
 
 @router.get("", response_model=List[ProjectSummary])

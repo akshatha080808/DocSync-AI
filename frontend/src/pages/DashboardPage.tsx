@@ -1,6 +1,22 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, FolderGit2, Calendar, FileText, ArrowRight, Layers, AlertCircle, RefreshCw, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import {
+  Plus,
+  FolderGit2,
+  Calendar,
+  FileText,
+  ArrowRight,
+  Layers,
+  AlertCircle,
+  RefreshCw,
+  Trash2,
+  AlertTriangle,
+  CheckCircle2,
+  GitBranch,
+  Archive,
+  GitFork,
+  Key,
+} from 'lucide-react';
 import { api } from '../services/api';
 import type { ProjectSummary } from '../types/api';
 
@@ -12,8 +28,12 @@ export const DashboardPage: React.FC = () => {
 
   // New project modal state
   const [isModalOpen, setIsModalOpen] = React.useState(false);
+  const [selectedMode, setSelectedMode] = React.useState<'zip' | 'github'>('zip');
   const [newProjectName, setNewProjectName] = React.useState('');
   const [newProjectDesc, setNewProjectDesc] = React.useState('');
+  const [githubRepoUrl, setGithubRepoUrl] = React.useState('');
+  const [githubBranch, setGithubBranch] = React.useState('');
+  const [githubToken, setGithubToken] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
 
   // Delete project modal state
@@ -40,16 +60,28 @@ export const DashboardPage: React.FC = () => {
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProjectName.trim()) return;
+    if (selectedMode === 'github' && !githubRepoUrl.trim()) {
+      alert('GitHub Repository URL is required for Mode 2.');
+      return;
+    }
 
     try {
       setSubmitting(true);
       await api.createProject({
         name: newProjectName.trim(),
         description: newProjectDesc.trim() || undefined,
+        audit_mode: selectedMode,
+        github_repo_url: selectedMode === 'github' ? githubRepoUrl.trim() : undefined,
+        github_branch: selectedMode === 'github' && githubBranch.trim() ? githubBranch.trim() : undefined,
+        github_token: selectedMode === 'github' && githubToken.trim() ? githubToken.trim() : undefined,
       });
       setIsModalOpen(false);
       setNewProjectName('');
       setNewProjectDesc('');
+      setGithubRepoUrl('');
+      setGithubBranch('');
+      setGithubToken('');
+      setSelectedMode('zip');
       await loadProjects();
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Failed to create project.');
@@ -155,21 +187,49 @@ export const DashboardPage: React.FC = () => {
                   <div className="w-9 h-9 rounded-lg bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
                     <FolderGit2 className="w-5 h-5" />
                   </div>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
-                      proj.analysis_status === 'completed'
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                        : proj.has_source
-                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
-                        : 'bg-slate-700/20 text-slate-400 border border-slate-700/40'
-                    }`}
-                  >
-                    {proj.analysis_status}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wider flex items-center gap-1 ${
+                        proj.audit_mode === 'github'
+                          ? 'bg-purple-500/10 text-purple-300 border border-purple-500/30'
+                          : 'bg-slate-700/20 text-slate-400 border border-slate-700/40'
+                      }`}
+                    >
+                      {proj.audit_mode === 'github' ? (
+                        <>
+                          <GitBranch className="w-3 h-3 text-purple-400" />
+                          GitHub
+                        </>
+                      ) : (
+                        <>
+                          <Archive className="w-3 h-3 text-slate-400" />
+                          ZIP
+                        </>
+                      )}
+                    </span>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                        proj.analysis_status === 'completed'
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : proj.has_source
+                          ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                          : 'bg-slate-700/20 text-slate-400 border border-slate-700/40'
+                      }`}
+                    >
+                      {proj.analysis_status}
+                    </span>
+                  </div>
                 </div>
                 <h3 className="font-semibold text-slate-100 text-base group-hover:text-indigo-300 transition-colors">
                   {proj.name}
                 </h3>
+                {proj.audit_mode === 'github' && proj.github_repo && (
+                  <p className="text-[11px] font-mono text-purple-400/90 mt-0.5 truncate flex items-center gap-1">
+                    <GitFork className="w-3 h-3 shrink-0" />
+                    <span>{proj.github_repo}</span>
+                    {proj.github_branch && <span className="text-slate-500">({proj.github_branch})</span>}
+                  </p>
+                )}
                 <p className="text-xs text-slate-400 mt-1 line-clamp-2">
                   {proj.description || 'No description provided.'}
                 </p>
@@ -207,11 +267,40 @@ export const DashboardPage: React.FC = () => {
       {/* Create Project Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#0f172a] border border-slate-800 rounded-xl p-6 w-full max-w-md shadow-2xl">
+          <div className="bg-[#0f172a] border border-slate-800 rounded-xl p-6 w-full max-w-lg shadow-2xl">
             <h2 className="text-lg font-bold text-slate-100 mb-1">Create Workspace</h2>
-            <p className="text-xs text-slate-400 mb-5">
-              Set up a project space to isolate codebase files and drift detection audits.
+            <p className="text-xs text-slate-400 mb-4">
+              Select an audit mode and set up a workspace for documentation drift detection.
             </p>
+
+            {/* Mode Selection Tabs */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-slate-900 border border-slate-800 rounded-lg mb-5">
+              <button
+                type="button"
+                onClick={() => setSelectedMode('zip')}
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+                  selectedMode === 'zip'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                <span>Mode 1: ZIP Upload</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedMode('github')}
+                className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-medium transition-all ${
+                  selectedMode === 'github'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <GitFork className="w-3.5 h-3.5" />
+                <span>Mode 2: GitHub Connected</span>
+              </button>
+            </div>
+
             <form onSubmit={handleCreateProject} className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">
@@ -220,22 +309,78 @@ export const DashboardPage: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. DocSync Payment Service"
+                  placeholder={selectedMode === 'github' ? 'e.g. DocSync GitHub Service' : 'e.g. DocSync Payment Service'}
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-md text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                 />
               </div>
+
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-1.5">Description (optional)</label>
                 <textarea
-                  rows={3}
+                  rows={2}
                   placeholder="Repository purpose and documentation targets..."
                   value={newProjectDesc}
                   onChange={(e) => setNewProjectDesc(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-md text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 resize-none"
                 />
               </div>
+
+              {selectedMode === 'github' && (
+                <div className="p-3.5 rounded-lg bg-purple-950/20 border border-purple-500/20 space-y-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+                    <GitFork className="w-4 h-4" />
+                    <span>GitHub Repository Configuration</span>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                      Repository URL <span className="text-rose-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="https://github.com/owner/repository or owner/repository"
+                      value={githubRepoUrl}
+                      onChange={(e) => setGithubRepoUrl(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-md text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                        Branch (optional)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="main (auto-detected if empty)"
+                        value={githubBranch}
+                        onChange={(e) => setGithubBranch(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-md text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-300 mb-1 flex items-center gap-1">
+                        <Key className="w-3 h-3 text-amber-400" />
+                        <span>Access Token (optional)</span>
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="ghp_... for private repos"
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-900 border border-slate-700/80 rounded-md text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-purple-500 font-mono"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400">
+                    Access tokens are never persisted in plaintext or exposed to browser logs; tokens are used solely for authenticated GitHub API requests.
+                  </p>
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-3 pt-3">
                 <button
                   type="button"
@@ -247,9 +392,13 @@ export const DashboardPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-2 text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors disabled:opacity-50"
+                  className={`px-4 py-2 text-xs font-medium text-white rounded-md transition-colors disabled:opacity-50 ${
+                    selectedMode === 'github'
+                      ? 'bg-purple-600 hover:bg-purple-500'
+                      : 'bg-indigo-600 hover:bg-indigo-500'
+                  }`}
                 >
-                  {submitting ? 'Creating...' : 'Create Workspace'}
+                  {submitting ? 'Creating...' : selectedMode === 'github' ? 'Create GitHub Workspace' : 'Create Workspace'}
                 </button>
               </div>
             </form>

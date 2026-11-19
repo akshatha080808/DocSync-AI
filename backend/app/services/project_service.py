@@ -44,7 +44,14 @@ class ProjectService:
     def get_analysis_dir(self, project_id: str) -> Path:
         return self._get_project_dir(project_id) / "analysis"
 
-    def create_project(self, name: str, description: Optional[str] = None) -> ProjectSummary:
+    def create_project(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        audit_mode: str = "zip",
+        github_repo: Optional[str] = None,
+        github_branch: Optional[str] = None,
+    ) -> ProjectSummary:
         project_id = str(uuid.uuid4())
         pdir = self._get_project_dir(project_id)
         pdir.mkdir(parents=True, exist_ok=True)
@@ -59,10 +66,14 @@ class ProjectService:
             description=description,
             created_at=now_str,
             updated_at=now_str,
+            audit_mode=audit_mode or "zip",
+            github_repo=github_repo,
+            github_branch=github_branch,
             has_source=False,
             document_count=0,
             document_names=[],
             analysis_status="unprocessed",
+            drift_status="unprocessed",
         )
         self.save_project_summary(summary)
         return summary

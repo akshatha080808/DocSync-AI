@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ShieldCheck,
   RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import { api } from '../services/api';
 import type { DriftFinding, SeverityLevel, DriftCategory } from '../types/api';
@@ -19,6 +20,7 @@ export const FindingsPage: React.FC = () => {
   const [findings, setFindings] = React.useState<DriftFinding[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [detecting, setDetecting] = React.useState(false);
+  const [hasExecutedScan, setHasExecutedScan] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   // Filters
@@ -32,7 +34,10 @@ export const FindingsPage: React.FC = () => {
       setLoading(true);
       setError(null);
       const res = await api.getFindings(projectId);
-      setFindings(res.findings);
+      setFindings(res.findings || []);
+      if (res.findings && res.findings.length > 0) {
+        setHasExecutedScan(true);
+      }
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Failed to load findings.');
     } finally {
@@ -50,7 +55,8 @@ export const FindingsPage: React.FC = () => {
       setDetecting(true);
       setError(null);
       const res = await api.detectDrift(projectId);
-      setFindings(res.findings);
+      setFindings(res.findings || []);
+      setHasExecutedScan(true);
     } catch (err: any) {
       setError(err?.response?.data?.detail || err.message || 'Drift scan failed.');
     } finally {
@@ -178,14 +184,35 @@ export const FindingsPage: React.FC = () => {
       {loading ? (
         <div className="text-xs text-slate-500 py-12 text-center">Loading drift findings...</div>
       ) : filteredFindings.length === 0 ? (
-        <div className="p-12 text-center rounded-xl bg-[#0b101b] border border-dashed border-slate-800 space-y-2">
-          <CheckCircle2 className="w-10 h-10 text-emerald-500/80 mx-auto" />
-          <h3 className="text-sm font-semibold text-slate-300">No Matching Findings</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            {findings.length === 0
-              ? 'Click "Run Drift Detection" to compare extracted documentation against codebase ground truth.'
-              : 'No findings match your current filter parameters.'}
-          </p>
+        <div className="p-12 text-center rounded-xl bg-[#0b101b] border border-dashed border-slate-800 space-y-3">
+          {findings.length === 0 ? (
+            hasExecutedScan ? (
+              <>
+                <ShieldCheck className="w-10 h-10 text-emerald-400 mx-auto" />
+                <h3 className="text-sm font-semibold text-slate-200">Drift Scan Completed — No Drift Detected</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+                  Deterministic analysis inspected all symbols, signatures, entrypoints, and dependencies.
+                  Extracted documentation claims align with codebase ground truth.
+                </p>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-10 h-10 text-amber-500/80 mx-auto" />
+                <h3 className="text-sm font-semibold text-slate-300">Drift Detection Not Yet Executed</h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Click "Run Drift Detection" above to compare extracted documentation against codebase ground truth.
+                </p>
+              </>
+            )
+          ) : (
+            <>
+              <CheckCircle2 className="w-10 h-10 text-indigo-400 mx-auto" />
+              <h3 className="text-sm font-semibold text-slate-300">No Filter Matches</h3>
+              <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                No drift findings match your current severity, category, or search filters.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-4">

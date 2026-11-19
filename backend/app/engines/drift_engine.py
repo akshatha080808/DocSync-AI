@@ -381,6 +381,177 @@ class DriftEngine:
                         )
                     )
 
+        # -------------------------------------------------------------
+        # D. CLI COMMANDS & ENTRYPOINT SCRIPT VERIFICATION
+        # -------------------------------------------------------------
+        for doc in analysis.documentation_files:
+            for cmd in doc.cli_commands:
+                # Match python <script>, node <script>, etc.
+                script_match = re.search(r"\b(?:python(?:3)?|node|ts-node|bash|sh)\s+([a-zA-Z0-9_\-\./\\]+\.(?:py|js|jsx|ts|tsx|sh))\b", cmd)
+                if script_match:
+                    script_file = script_match.group(1).replace("\\", "/")
+                    script_basename = script_file.split("/")[-1]
+                    exists = any(
+                        sf.file_path.replace("\\", "/").endswith(script_file) or
+                        sf.file_path.replace("\\", "/").endswith(script_basename)
+                        for sf in analysis.source_files
+                    )
+                    if not exists and len(analysis.source_files) > 0:
+                        ev_doc = create_evidence(doc.file_path, f"Documented command: {cmd}", "doc")
+                        findings.append(
+                            DriftFinding(
+                                finding_id=f"DRIFT-{len(findings)+1:03d}",
+                                project_id=analysis.project_id,
+                                category=DriftCategory.MISSING,
+                                title=f"Documented entrypoint script '{script_basename}' does not exist in codebase",
+                                description=f"Documentation in '{doc.file_path}' specifies running '{cmd}', but no script matching '{script_basename}' exists in the repository.",
+                                severity=SeverityLevel.HIGH,
+                                confidence=0.98,
+                                verification_status=VerificationStatus.VERIFIED,
+                                documentation=DocumentLocation(file=doc.file_path),
+                                symbol=script_basename,
+                                documented_claim=f"Execute entrypoint: `{cmd}`",
+                                actual_fact=f"Script '{script_basename}' is not present in parsed source files",
+                                explanation=f"The command '{cmd}' references an entrypoint script that was renamed, moved, or never committed.",
+                                suggested_correction=f"Update command to reference an existing source file or add '{script_basename}'.",
+                                detection_method=DetectionMethod.DETERMINISTIC,
+                                evidence_ids=[ev_doc],
+                                impact_explanation="Users running the documented start command will get FileNotFoundError or execution failure.",
+                            )
+                        )
+
+                # Match package install commands: pip install <pkg>, npm install <pkg>
+                install_match = re.search(r"\b(?:pip(?:3)?\s+install|npm\s+(?:i|install)|yarn\s+add|pnpm\s+add)\s+([a-zA-Z0-9_\-\s]+)", cmd)
+                if install_match:
+                    raw_pkgs = install_match.group(1).split()
+                    for pkg in raw_pkgs:
+                        pkg_clean = re.sub(r"[><=~].*$", "", pkg).strip().lower()
+                        if pkg_clean in {"-r", "-e", "--upgrade", "-u", "-m", "install", "."}:
+                            continue
+                        all_ext_deps = {d.lower() for d in getattr(analysis.dependency_graph, "external_dependencies", [])}
+                        all_imported_mods = {imp.module.split(".")[0].lower() for sf in analysis.source_files for imp in sf.imports}
+                        if pkg_clean not in all_ext_deps and pkg_clean not in all_imported_mods and len(analysis.source_files) > 0:
+                            ev_doc = create_evidence(doc.file_path, f"Documented install command: {cmd}", "doc")
+                            findings.append(
+                                DriftFinding(
+                                    finding_id=f"DRIFT-{len(findings)+1:03d}",
+                                    project_id=analysis.project_id,
+                                    category=DriftCategory.OUTDATED,
+                                    title=f"Documented dependency '{pkg_clean}' is not imported or declared in codebase",
+                                    description=f"Documentation in '{doc.file_path}' instructs installing package '{pkg_clean}', but it is neither declared nor imported in any source file.",
+                                    severity=SeverityLevel.MEDIUM,
+                                    confidence=0.90,
+                                    verification_status=VerificationStatus.VERIFIED,
+                                    documentation=DocumentLocation(file=doc.file_path),
+                                    symbol=pkg_clean,
+                                    documented_claim=f"Install requirement: `{pkg_clean}`",
+                                    actual_fact=f"Package '{pkg_clean}' is absent from codebase imports and dependency graphs",
+                                    explanation=f"The package '{pkg_clean}' was likely removed from the codebase or the documentation lists an unnecessary dependency.",
+                                    suggested_correction=f"Remove '{pkg_clean}' from setup documentation or add its required imports.",
+                                    detection_method=DetectionMethod.DETERMINISTIC,
+                                    evidence_ids=[ev_doc],
+                                    impact_explanation="Users follow unnecessary installation steps that have no effect or indicate unmaintained documentation.",
+                                )
+                            )
+
+        # -------------------------------------------------------------
+        # E. LANGUAGE & RUNTIME CONSISTENCY VERIFICATION
+        # -------------------------------------------------------------
+        detected_languages = {sf.language.lower() for sf in analysis.source_files if sf.language}
+        for doc in analysis.documentation_files:
+            doc_full_text = " ".join([sec.content for sec in doc.sections] + [doc.title or ""]).lower()
+            claims_python = bool(
+                re.search(r"\bpython(?:-based|\s+3|\s+script|\s+code|\s+application)?\b", doc_full_text) or
+                any("python" in cmd for cmd in doc.cli_commands)
+            )
+            claims_js = bool(
+                re.search(r"\b(?:javascript|node\.?js|react|express|npm|yarn)\b", doc_full_text) or
+                any("npm " in cmd or "node " in cmd for cmd in doc.cli_commands)
+            )
+
+            if claims_python and "python" not in detected_languages and "javascript" in detected_languages:
+                ev_doc = create_evidence(doc.file_path, "Documentation specifies Python environment/commands", "doc")
+                findings.append(
+                    DriftFinding(
+                        finding_id=f"DRIFT-{len(findings)+1:03d}",
+                        project_id=analysis.project_id,
+                        category=DriftCategory.CONTRADICTORY,
+                        title="Documentation claims Python codebase, but parsed repository is JavaScript",
+                        description=f"Documentation in '{doc.file_path}' describes a Python application, but the codebase contains only JavaScript source files.",
+                        severity=SeverityLevel.CRITICAL,
+                        confidence=0.95,
+                        verification_status=VerificationStatus.VERIFIED,
+                        documentation=DocumentLocation(file=doc.file_path),
+                        documented_claim="Application is Python-based with Python execution instructions",
+                        actual_fact=f"No Python files found; detected codebase language is {list(detected_languages)}",
+                        explanation="The documentation describes an entirely different programming language runtime than the codebase.",
+                        suggested_correction="Update documentation to match the JavaScript implementation, or upload the matching Python repository.",
+                        detection_method=DetectionMethod.DETERMINISTIC,
+                        evidence_ids=[ev_doc],
+                        impact_explanation="Users following Python setup instructions cannot run or build the JavaScript codebase.",
+                    )
+                )
+            elif claims_js and "javascript" not in detected_languages and "python" in detected_languages:
+                ev_doc = create_evidence(doc.file_path, "Documentation specifies JavaScript/Node environment", "doc")
+                findings.append(
+                    DriftFinding(
+                        finding_id=f"DRIFT-{len(findings)+1:03d}",
+                        project_id=analysis.project_id,
+                        category=DriftCategory.CONTRADICTORY,
+                        title="Documentation claims Node.js/JavaScript codebase, but parsed repository is Python",
+                        description=f"Documentation in '{doc.file_path}' describes a JavaScript application, but the codebase contains only Python source files.",
+                        severity=SeverityLevel.CRITICAL,
+                        confidence=0.95,
+                        verification_status=VerificationStatus.VERIFIED,
+                        documentation=DocumentLocation(file=doc.file_path),
+                        documented_claim="Application is Node.js/JavaScript-based",
+                        actual_fact=f"No JavaScript files found; detected codebase language is {list(detected_languages)}",
+                        explanation="The documentation describes a Node.js/JavaScript application while the codebase is in Python.",
+                        suggested_correction="Update documentation to match the Python implementation.",
+                        detection_method=DetectionMethod.DETERMINISTIC,
+                        evidence_ids=[ev_doc],
+                        impact_explanation="Users will fail to execute npm or node commands in a Python repository.",
+                    )
+                )
+
+        # -------------------------------------------------------------
+        # F. DOCUMENTED TECHNOLOGY & FRAMEWORK CLAIMS
+        # -------------------------------------------------------------
+        for doc in analysis.documentation_files:
+            for sec in doc.sections:
+                if any(kw in sec.heading.lower() for kw in ("technologies", "tech stack", "features")):
+                    tech_lines = [l.strip().lstrip("-*•0123456789. ") for l in sec.content.splitlines() if l.strip()]
+                    for item in tech_lines:
+                        token = item.split()[0].strip(".,;:").lower() if item.split() else ""
+                        if token in {"python", "javascript", "node", "html", "css", "git", "bash", "sh"}:
+                            continue
+                        if token in {"pygame", "redis", "mongodb", "fastapi", "flask", "django", "pandas", "numpy", "torch", "socketio"}:
+                            all_ext_deps = {d.lower() for d in getattr(analysis.dependency_graph, "external_dependencies", [])}
+                            all_imported_mods = {imp.module.split(".")[0].lower() for sf in analysis.source_files for imp in sf.imports}
+                            if token not in all_ext_deps and token not in all_imported_mods and len(analysis.source_files) > 0:
+                                ev_doc = create_evidence(doc.file_path, f"{sec.heading}: {item}", "doc")
+                                findings.append(
+                                    DriftFinding(
+                                        finding_id=f"DRIFT-{len(findings)+1:03d}",
+                                        project_id=analysis.project_id,
+                                        category=DriftCategory.MISSING,
+                                        title=f"Documented technology '{item}' is not implemented or imported in codebase",
+                                        description=f"Documentation under '{sec.heading}' lists '{item}', but no corresponding module or dependency exists in the codebase.",
+                                        severity=SeverityLevel.HIGH,
+                                        confidence=0.92,
+                                        verification_status=VerificationStatus.VERIFIED,
+                                        documentation=DocumentLocation(file=doc.file_path, section=sec.heading),
+                                        symbol=token,
+                                        documented_claim=f"Project utilizes {item}",
+                                        actual_fact=f"No imports or dependencies matching '{token}' found in repository",
+                                        explanation=f"The feature/technology '{item}' is claimed in documentation but absent from the codebase.",
+                                        suggested_correction=f"Implement '{item}' or remove the claim from '{sec.heading}'.",
+                                        detection_method=DetectionMethod.DETERMINISTIC,
+                                        evidence_ids=[ev_doc],
+                                        impact_explanation="Stakeholders and users expect claimed capabilities that are not actually implemented.",
+                                    )
+                                )
+
         return findings, evidence_pool
 
 

@@ -5,6 +5,7 @@ import type {
   ProjectCreate,
   ProjectFilesResponse,
   UploadResponse,
+  DocumentDeleteResponse,
   AnalysisResult,
   DependencyGraph,
   ProjectFindingsResponse,
@@ -13,6 +14,11 @@ import type {
   AgentExecutionTrace,
   ProjectCorrectionsResponse,
   DocumentationCorrection,
+  GitHubConnectRequest,
+  GitHubBranchInfo,
+  GitHubRepoStatus,
+  GitHubCommitHistoryItem,
+  GitHubSyncResponse,
 } from '../types/api';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -73,6 +79,11 @@ export const api = {
     const res = await client.post(`/api/projects/${projectId}/upload-documents`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
+    return res.data;
+  },
+
+  async deleteDocument(projectId: string, filename: string): Promise<DocumentDeleteResponse> {
+    const res = await client.delete(`/api/projects/${projectId}/documents/${encodeURIComponent(filename)}`);
     return res.data;
   },
 
@@ -138,5 +149,31 @@ export const api = {
 
   getPdfReportUrl(projectId: string): string {
     return `${API_BASE_URL}/api/projects/${projectId}/report/pdf`;
+  },
+
+  // Mode 2: GitHub Integration
+  async connectGitHub(projectId: string, data: GitHubConnectRequest): Promise<GitHubRepoStatus> {
+    const res = await client.post(`/api/projects/${projectId}/github/connect`, data);
+    return res.data;
+  },
+
+  async getGitHubStatus(projectId: string): Promise<GitHubRepoStatus> {
+    const res = await client.get(`/api/projects/${projectId}/github/status`);
+    return res.data;
+  },
+
+  async getGitHubBranches(projectId: string): Promise<GitHubBranchInfo[]> {
+    const res = await client.get(`/api/projects/${projectId}/github/branches`);
+    return res.data;
+  },
+
+  async syncGitHub(projectId: string, branch?: string): Promise<GitHubSyncResponse> {
+    const res = await client.post(`/api/projects/${projectId}/github/sync`, branch ? { branch } : {});
+    return res.data;
+  },
+
+  async getGitHubHistory(projectId: string): Promise<GitHubCommitHistoryItem[]> {
+    const res = await client.get(`/api/projects/${projectId}/github/history`);
+    return res.data;
   },
 };

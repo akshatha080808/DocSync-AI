@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.exceptions import DocSyncError
 from app.routes.analysis import router as analysis_router
 from app.routes.drift import router as drift_router
+from app.routes.github import router as github_router
 from app.routes.projects import router as projects_router
 from app.routes.reports import router as reports_router
 from app.routes.uploads import router as uploads_router
@@ -44,6 +45,7 @@ app.include_router(uploads_router)
 app.include_router(analysis_router)
 app.include_router(drift_router)
 app.include_router(reports_router)
+app.include_router(github_router)
 
 
 @app.get("/health", tags=["health"])

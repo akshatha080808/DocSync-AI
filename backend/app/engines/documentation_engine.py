@@ -87,6 +87,8 @@ class DocumentationEngine:
                 config_refs.add(item)
             elif re.match(r"^[A-Z][a-zA-Z0-9]+$", item):
                 class_refs.add(item)
+            elif re.match(r"^[a-z][a-z0-9_]{2,}$", item) and "_" in item:
+                func_refs.add(item)
 
         # Parse sections based on markdown headings
         current_heading = "Overview"

@@ -52,6 +52,12 @@ class ReportEngine:
                 "updated_at": project.updated_at,
                 "file_count": project.file_count,
                 "total_size_bytes": project.total_size_bytes,
+                "audit_mode": getattr(project, "audit_mode", "zip"),
+                "github_repo": getattr(project, "github_repo", None),
+                "github_branch": getattr(project, "github_branch", None),
+                "latest_commit_sha": getattr(project, "latest_commit_sha", None),
+                "drift_status": getattr(project, "drift_status", None),
+                "last_drift_detected_at": getattr(project, "last_drift_detected_at", None),
             },
             "summary": {
                 "total_findings": len(findings),
@@ -133,9 +139,15 @@ class ReportEngine:
         # 1. Header
         story.append(Paragraph("DocSync AI — Documentation Drift Audit Report", title_style))
         gen_time = datetime.now(timezone.utc).strftime("%B %d, %Y - %H:%M:%S UTC")
+        
+        mode_label = "GitHub Connected" if getattr(project, "audit_mode", "zip") == "github" else "ZIP Archive Audit"
+        repo_info = f" &nbsp;|&nbsp; <b>Repo:</b> {project.github_repo} ({project.github_branch})" if getattr(project, "audit_mode", "zip") == "github" and getattr(project, "github_repo", None) else ""
+        commit_info = f" &nbsp;|&nbsp; <b>Commit:</b> {project.latest_commit_sha[:8]}" if getattr(project, "latest_commit_sha", None) else ""
+
         story.append(
             Paragraph(
                 f"<b>Project:</b> {project.name} &nbsp;|&nbsp; <b>ID:</b> {project.id}<br/>"
+                f"<b>Mode:</b> {mode_label}{repo_info}{commit_info}<br/>"
                 f"<b>Generated:</b> {gen_time} &nbsp;|&nbsp; <b>Files Analyzed:</b> {project.file_count}",
                 subtitle_style,
             )

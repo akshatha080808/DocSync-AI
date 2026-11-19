@@ -297,3 +297,78 @@ def test_semantic_engine_missing_key_graceful_handling():
         doc_file="README.md",
     )
     assert res is None
+
+
+def test_drift_detection_cli_entrypoint_and_tech_claims():
+    """Regression test: verifies that entrypoint scripts (e.g. main.py) and claimed dependencies (e.g. pygame)
+    in documentation generate drift findings when absent from the codebase.
+    """
+    from app.models.analysis import ExtractedDocFile, DocSection
+    from app.models.analysis import AnalysisSummary, DependencyGraph
+    from app.models.source import ParsedSourceFile
+
+    doc = ExtractedDocFile(
+        file_path="README.md",
+        doc_type="markdown",
+        title="MazeSolver",
+        cli_commands=["python -m pip install pygame", "python main.py"],
+        sections=[
+            DocSection(
+                heading="Technologies Used",
+                level=2,
+                content="- Python\n- Pygame\n- CSV\n- Breadth-First Search (BFS)",
+            )
+        ],
+    )
+
+    analysis = AnalysisResult(
+        project_id="test-maze-drift",
+        summary=AnalysisSummary(
+            project_id="test-maze-drift",
+            analyzed_at="2026-11-19T10:00:00Z",
+            source_files_count=1,
+            total_functions=0,
+            total_classes=0,
+            total_methods=0,
+            total_loc=20,
+            documentation_files_count=1,
+            configuration_files_count=0,
+            dependency_nodes_count=1,
+            dependency_edges_count=0,
+            circular_dependency_count=0,
+            warnings=[],
+        ),
+        source_files=[
+            ParsedSourceFile(
+                file_path="models/User.js",
+                language="javascript",
+                functions=[],
+                classes=[],
+                imports=[],
+                exports=[],
+                docstrings=[],
+                comments=[],
+                loc=20,
+            )
+        ],
+        documentation_files=[doc],
+        configuration_files=[],
+        dependency_graph=DependencyGraph(nodes=[], edges=[], cycles=[], external_dependencies=["express"], isolated_modules=[]),
+    )
+
+    drift_eng = DriftEngine()
+    findings, evidence = drift_eng.detect_drift(analysis)
+
+    # Must detect:
+    # 1. Missing entrypoint script 'main.py'
+    # 2. Documented dependency 'pygame' not imported or declared
+    # 3. Language mismatch (claims Python, but codebase is JavaScript)
+    # 4. Documented technology 'Pygame' not implemented
+    assert len(findings) >= 4
+    categories = {f.category for f in findings}
+    assert DriftCategory.MISSING in categories
+    assert DriftCategory.OUTDATED in categories
+    assert DriftCategory.CONTRADICTORY in categories
+    assert any("main.py" in f.title for f in findings)
+    assert any("pygame" in f.title.lower() for f in findings)
+

@@ -18,6 +18,12 @@ export interface ProjectSummary {
   document_names: string[];
   analysis_status: string; // "unprocessed" | "completed" | "analyzing"
   last_analyzed_at: string | null;
+  audit_mode?: 'zip' | 'github';
+  github_repo?: string | null;
+  github_branch?: string | null;
+  latest_commit_sha?: string | null;
+  drift_status?: string | null;
+  last_drift_detected_at?: string | null;
 }
 
 export interface ProjectDetail extends ProjectSummary {
@@ -28,6 +34,10 @@ export interface ProjectDetail extends ProjectSummary {
 export interface ProjectCreate {
   name: string;
   description?: string;
+  audit_mode?: 'zip' | 'github';
+  github_repo_url?: string;
+  github_branch?: string;
+  github_token?: string;
 }
 
 export interface FileInfo {
@@ -49,6 +59,14 @@ export interface UploadResponse {
   message: string;
   files_processed: number;
   filenames: string[];
+}
+
+export interface DocumentDeleteResponse {
+  project_id: string;
+  filename: string;
+  message: string;
+  remaining_documents: string[];
+  document_count: number;
 }
 
 export interface ParameterInfo {
@@ -289,4 +307,63 @@ export interface ProjectCorrectionsResponse {
   project_id: string;
   total_corrections: number;
   corrections: DocumentationCorrection[];
+}
+
+// ==========================================
+// Mode 2: GitHub Repository Audit Interfaces
+// ==========================================
+
+export interface GitHubConnectRequest {
+  repo_url: string;
+  branch?: string;
+  github_token?: string;
+}
+
+export interface GitHubBranchInfo {
+  name: string;
+  is_default: boolean;
+  commit_sha: string;
+}
+
+export interface GitHubRepoStatus {
+  connected: boolean;
+  repo_url: string | null;
+  owner: string | null;
+  repo_name: string | null;
+  branch: string | null;
+  default_branch: string | null;
+  is_private: boolean;
+  latest_commit_sha: string | null;
+  last_synced_at: string | null;
+  sync_status: string | null;
+  drift_status: string | null;
+  total_syncs: number;
+  tracked_doc_files: string[];
+}
+
+export interface GitHubCommitHistoryItem {
+  commit_sha: string;
+  author: string;
+  date: string;
+  message: string;
+  files_changed: string[];
+  doc_changes_count: number;
+  code_changes_count: number;
+  findings_detected_count: number;
+  synced_at: string;
+  sync_status: string;
+}
+
+export interface GitHubSyncResponse {
+  project_id: string;
+  status: 'UP_TO_DATE' | 'CHANGES_DETECTED' | 'ANALYSIS_COMPLETED' | 'DRIFT_DETECTED' | 'FAILED';
+  message: string;
+  previous_commit_sha: string | null;
+  latest_commit_sha: string;
+  files_changed: string[];
+  doc_changes: string[];
+  code_changes: string[];
+  drift_findings_count: number;
+  synced_at: string;
+  is_up_to_date: boolean;
 }

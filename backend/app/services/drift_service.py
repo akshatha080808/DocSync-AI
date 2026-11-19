@@ -95,7 +95,7 @@ class DriftService:
         )
 
     def get_findings(self, project_id: str) -> ProjectFindingsResponse:
-        project_service.get_project(project_id)
+        project = project_service.get_project(project_id)
         f_file = self._get_findings_file(project_id)
         e_file = self._get_evidence_file(project_id)
 
@@ -116,8 +116,16 @@ class DriftService:
             except Exception:
                 pass
 
-        # If findings don't exist yet, run detection
+        # If findings don't exist yet, run detection only if analysis is completed
         if not f_file.exists():
+            analysis_file = project_service.get_analysis_dir(project_id) / "analysis.json"
+            if project.analysis_status != "completed" or not analysis_file.exists():
+                return ProjectFindingsResponse(
+                    project_id=project_id,
+                    total_findings=0,
+                    findings=[],
+                    evidence_pool=[],
+                )
             return self.detect_and_save_drift(project_id)
 
         return ProjectFindingsResponse(
@@ -135,9 +143,22 @@ class DriftService:
         raise AnalysisError(f"Finding '{finding_id}' not found for project '{project_id}'.")
 
     def get_agent_trace(self, project_id: str) -> AgentExecutionTrace:
-        project_service.get_project(project_id)
+        project = project_service.get_project(project_id)
         t_file = self._get_trace_file(project_id)
         if not t_file.exists():
+            analysis_file = project_service.get_analysis_dir(project_id) / "analysis.json"
+            if project.analysis_status != "completed" or not analysis_file.exists():
+                from datetime import datetime, timezone
+                now_str = datetime.now(timezone.utc).isoformat()
+                return AgentExecutionTrace(
+                    project_id=project_id,
+                    started_at=now_str,
+                    completed_at=now_str,
+                    total_steps=0,
+                    steps=[],
+                    termination_reason="Analysis not yet completed or invalidated",
+                    status="PARTIAL",
+                )
             # If trace does not exist, run agent to produce initial trace
             run_resp = self.run_agent_investigation(project_id)
             return run_resp.trace
@@ -146,9 +167,16 @@ class DriftService:
         return AgentExecutionTrace(**data)
 
     def get_corrections(self, project_id: str) -> ProjectCorrectionsResponse:
-        project_service.get_project(project_id)
+        project = project_service.get_project(project_id)
         c_file = self._get_corrections_file(project_id)
         if not c_file.exists():
+            analysis_file = project_service.get_analysis_dir(project_id) / "analysis.json"
+            if project.analysis_status != "completed" or not analysis_file.exists():
+                return ProjectCorrectionsResponse(
+                    project_id=project_id,
+                    total_corrections=0,
+                    corrections=[],
+                )
             # Generate corrections from findings
             findings_resp = self.get_findings(project_id)
             corrections = correction_engine.generate_all(findings_resp.findings)

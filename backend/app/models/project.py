@@ -13,7 +13,10 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
-    pass
+    audit_mode: Optional[str] = Field(default="zip", description="'zip' for Mode 1 or 'github' for Mode 2")
+    github_repo_url: Optional[str] = Field(default=None, description="GitHub repository URL if Mode 2")
+    github_branch: Optional[str] = Field(default=None, description="GitHub branch name if Mode 2")
+    github_token: Optional[str] = Field(default=None, description="Optional GitHub Personal Access Token")
 
 
 class ProjectSummary(BaseModel):
@@ -22,12 +25,18 @@ class ProjectSummary(BaseModel):
     description: Optional[str] = None
     created_at: str
     updated_at: str
+    audit_mode: str = "zip"  # "zip" (Mode 1) or "github" (Mode 2)
+    github_repo: Optional[str] = None
+    github_branch: Optional[str] = None
+    latest_commit_sha: Optional[str] = None
     has_source: bool = False
     source_archive_name: Optional[str] = None
     document_count: int = 0
     document_names: List[str] = Field(default_factory=list)
     analysis_status: str = "unprocessed"  # unprocessed, analyzing, completed, failed
     last_analyzed_at: Optional[str] = None
+    drift_status: str = "unprocessed"  # unprocessed, completed, failed
+    last_drift_detected_at: Optional[str] = None
 
 
 class ProjectDetail(ProjectSummary):
@@ -54,3 +63,11 @@ class UploadResponse(BaseModel):
     message: str
     files_processed: int
     filenames: List[str] = Field(default_factory=list)
+
+
+class DocumentDeleteResponse(BaseModel):
+    project_id: str
+    filename: str
+    message: str
+    remaining_documents: List[str] = Field(default_factory=list)
+    document_count: int

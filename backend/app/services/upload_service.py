@@ -8,12 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
 from app.core.exceptions import UploadRejectedError
 from app.engines.archive_engine import archive_engine
-from app.models.project import UploadResponse
+from app.models.project import DocumentDeleteResponse, UploadResponse
 from app.services.project_service import project_service
 
 
@@ -120,6 +120,91 @@ class UploadService:
             message=f"Successfully uploaded {len(saved_files)} documents.",
             files_processed=len(saved_files),
             filenames=saved_files,
+        )
+
+    def delete_document_file(self, project_id: str, filename: str) -> DocumentDeleteResponse:
+        """Safely deletes an individual uploaded documentation file from a project.
+        
+        Validates:
+        1. project_id is sanitized and project exists.
+        2. filename is sanitized against path traversal and exists in documents/.
+        3. Never deletes files outside documents/.
+        4. Invalidates previous analysis results (analysis.json, findings.json, etc.).
+        5. Updates and persists project summary metadata.
+        """
+        if not project_id or not isinstance(project_id, str):
+            raise HTTPException(status_code=400, detail="Invalid project ID.")
+        if "/" in project_id or "\\" in project_id or ".." in project_id:
+            raise HTTPException(status_code=400, detail="Invalid project ID format (path traversal rejected).")
+
+        project = project_service.get_project(project_id)
+
+        if not filename or not isinstance(filename, str) or not filename.strip():
+            raise HTTPException(status_code=400, detail="Filename must be provided.")
+
+        cleaned_input = filename.strip()
+        if "/" in cleaned_input or "\\" in cleaned_input or ".." in cleaned_input:
+            raise HTTPException(status_code=400, detail="Path traversal attempt rejected.")
+
+        clean_name = Path(cleaned_input).name
+        if clean_name != cleaned_input:
+            raise HTTPException(status_code=400, detail="Invalid filename format.")
+
+        docs_dir = project_service.get_documents_dir(project_id).resolve()
+        target_file = (docs_dir / clean_name).resolve()
+
+        # Strict containment check
+        try:
+            target_file.relative_to(docs_dir)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Target file path is outside documentation directory.")
+
+        if target_file == docs_dir:
+            raise HTTPException(status_code=400, detail="Cannot delete documentation directory root.")
+
+        if not target_file.exists() or not target_file.is_file():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Documentation file '{clean_name}' not found in project '{project_id}'."
+            )
+
+        # 1. Delete the specific documentation file
+        target_file.unlink()
+
+        # 2. Invalidate previous analysis artifacts
+        analysis_dir = project_service.get_analysis_dir(project_id)
+        if analysis_dir.exists():
+            for artifact_name in [
+                "analysis.json",
+                "findings.json",
+                "evidence.json",
+                "corrections.json",
+                "agent_trace.json",
+            ]:
+                artifact_path = analysis_dir / artifact_name
+                if artifact_path.exists():
+                    artifact_path.unlink()
+
+        # 3. Update and persist project summary metadata
+        if docs_dir.exists():
+            project.document_names = sorted([f.name for f in docs_dir.iterdir() if f.is_file()])
+        else:
+            project.document_names = []
+
+        project.document_count = len(project.document_names)
+        project.analysis_status = "unprocessed"
+        project.drift_status = "unprocessed"
+        project.last_analyzed_at = None
+        project.last_drift_detected_at = None
+        project.updated_at = datetime.now(timezone.utc).isoformat()
+        project_service.save_project_summary(project)
+
+        return DocumentDeleteResponse(
+            project_id=project_id,
+            filename=clean_name,
+            message=f"Documentation file '{clean_name}' successfully deleted. Previous analysis results have been invalidated.",
+            remaining_documents=project.document_names,
+            document_count=project.document_count,
         )
 
 
